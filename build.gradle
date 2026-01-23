@@ -1,0 +1,17 @@
+plugins {
+    id 'java'
+}
+
+group = 'org.eptura'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'com.microsoft.azure:msal4j:1.14.0'
+    implementation 'com.microsoft.graph:microsoft-graph:5.80.0'
+    implementation 'org.apache.logging.log4j:log4j-api:2.20.0'
+    implementation 'org.apache.logging.log4j:log4j-core:2.20.0'
+}
