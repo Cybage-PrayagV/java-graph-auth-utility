@@ -1,17 +1,46 @@
 plugins {
     id 'java'
+    id 'java-library'
 }
 
 group = 'org.eptura'
-version = '1.0-SNAPSHOT'
+version = '1.0.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
 
 repositories {
     mavenCentral()
 }
 
 dependencies {
+    // Microsoft Graph and Authentication
     implementation 'com.microsoft.azure:msal4j:1.14.0'
     implementation 'com.microsoft.graph:microsoft-graph:5.80.0'
+
+    // Logging
     implementation 'org.apache.logging.log4j:log4j-api:2.20.0'
-    implementation 'org.apache.logging.log4j:log4j-core:2.20.0'
+    runtimeOnly 'org.apache.logging.log4j:log4j-core:2.20.0'
+
+    // Testing
+    testImplementation platform('org.junit:junit-bom:5.10.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation 'org.mockito:mockito-core:5.7.0'
+    testImplementation 'org.mockito:mockito-junit-jupiter:5.7.0'
+    testImplementation 'org.assertj:assertj-core:3.24.2'
+}
+
+test {
+    useJUnitPlatform()
+    testLogging {
+        events "passed", "skipped", "failed"
+        showStandardStreams = true
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
 }
