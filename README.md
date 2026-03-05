@@ -107,6 +107,7 @@ export AZURE_CLIENT_SECRET="your-client-secret"
 
 ```java
 import org.eptura.GraphAuthProvider;
+import org.eptura.GraphAuthException;
 import com.microsoft.graph.requests.GraphServiceClient;
 import okhttp3.Request;
 import java.util.UUID;
@@ -134,7 +135,7 @@ public class MyApp {
             users.getCurrentPage().forEach(user -> 
                 System.out.println("User: " + user.displayName));
 
-        } catch (GraphAuthProvider.GraphAuthProviderException e) {
+        } catch (GraphAuthException e) {
             if (e.isCircuitOpen()) {
                 System.err.println("Azure AD is unavailable, try again later");
             } else {
@@ -178,9 +179,9 @@ try (GraphAuthProvider provider = GraphAuthProvider.create(config)) {
 | `acquireTimeout` | 30 seconds | >0 | Maximum wait time for token acquisition |
 | `maxRetries` | 3 | 1 | Maximum retry attempts for transient failures |
 | `initialBackoff` | 500ms | >0 | Initial backoff duration for first retry |
-| `maxBackoff` | 10 seconds | N/A | Maximum backoff cap regardless of exponential growth |
-| `scopes` | `https://graph.microsoft.com/.default` | N/A | OAuth scopes to request |
-| `authorityUrlTemplate` | `https://login.microsoftonline.com/%s` | N/A | Azure AD authority URL | URL |
+| `maxBackoff` | 10 seconds | >= initialBackoff | Maximum backoff cap regardless of exponential growth |
+| `scopes` | `https://graph.microsoft.com/.default` | non-empty | OAuth scopes to request |
+| `authorityUrlTemplate` | `https://login.microsoftonline.com/%s` | contains %s | Azure AD authority URL template |
 
 ---
 
@@ -192,13 +193,19 @@ Integrate with your monitoring system by implementing the `TokenMetrics` interfa
 import org.eptura.TokenMetrics;
 import org.eptura.GraphAuthProvider;
 import org.eptura.GraphAuthConfig;
+import java.util.concurrent.atomic.AtomicInteger;
 
 // Example: Micrometer integration
 public class MicrometerTokenMetrics implements TokenMetrics {
     private final MeterRegistry registry;
+    private final AtomicInteger circuitBreakerState;
 
     public MicrometerTokenMetrics(MeterRegistry registry) {
         this.registry = registry;
+        
+        // Register gauge with AtomicInteger - Micrometer will poll this value at scrape time
+        this.circuitBreakerState = new AtomicInteger(0);
+        registry.gauge("graph.auth.circuit.open", circuitBreakerState);
     }
 
     @Override
@@ -219,7 +226,8 @@ public class MicrometerTokenMetrics implements TokenMetrics {
 
     @Override
     public void recordCircuitBreakerState(boolean open) {
-        registry.gauge("graph.auth.circuit.open", open ? 1 : 0);
+        // Update the AtomicInteger - gauge will reflect this on next Prometheus scrape
+        circuitBreakerState.set(open ? 1 : 0);
     }
 
     @Override
@@ -296,7 +304,7 @@ The utility implements a circuit breaker pattern to prevent cascade failures:
 | State | Behavior |
 |-------|----------|
 | **Closed** | Normal operation, requests go through |
-| **Open** | After 5 consecutive failures, requests fail immediately with `GraphAuthProviderException` |
+| **Open** | After 5 consecutive failures, requests fail immediately with `GraphAuthException` |
 | **Half-Open** | After 30 seconds, one request is allowed through to test recovery |
 
 ### Handling Circuit Breaker Exceptions
@@ -304,7 +312,7 @@ The utility implements a circuit breaker pattern to prevent cascade failures:
 ```java
 try {
     var client = provider.getClient();
-} catch (GraphAuthProvider.GraphAuthProviderException e) {
+} catch (GraphAuthException e) {
     if (e.isCircuitOpen()) {
         // Circuit is open - Azure AD appears unavailable
         // Implement fallback logic or inform user to retry later

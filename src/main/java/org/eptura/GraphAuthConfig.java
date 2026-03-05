@@ -79,6 +79,14 @@ public record GraphAuthConfig(
         if (initialBackoff.isNegative() || initialBackoff.isZero()) {
             throw new IllegalArgumentException("initialBackoff must be positive");
         }
+        if (maxBackoff.isNegative() || maxBackoff.isZero()) {
+            throw new IllegalArgumentException("maxBackoff must be positive");
+        }
+        if (maxBackoff.compareTo(initialBackoff) < 0) {
+            throw new IllegalArgumentException(
+                    "maxBackoff (" + maxBackoff.toMillis() + "ms) must be at least as long as initialBackoff (" +
+                    initialBackoff.toMillis() + "ms)");
+        }
         if (scopes.isEmpty()) {
             throw new IllegalArgumentException("scopes cannot be empty");
         }

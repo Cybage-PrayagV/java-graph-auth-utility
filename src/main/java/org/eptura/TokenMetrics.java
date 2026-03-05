@@ -12,17 +12,22 @@ package org.eptura;
  *     private final MeterRegistry registry;
  *     private final Timer refreshTimer;
  *     private final Counter cacheHitCounter;
+ *     private final AtomicInteger circuitBreakerState;
  *
  *     public MicrometerTokenMetrics(MeterRegistry registry) {
  *         this.registry = registry;
  *         this.refreshTimer = registry.timer("graph.auth.token.refresh");
  *         this.cacheHitCounter = registry.counter("graph.auth.token.cache.hits");
+ *
+ *         // Register gauge with AtomicInteger - Micrometer will poll this value
+ *         this.circuitBreakerState = new AtomicInteger(0);
+ *         registry.gauge("graph.auth.circuit.open", circuitBreakerState);
  *     }
  *
  *     @Override
  *     public void recordTokenRefresh(long latencyMs, boolean success) {
  *         refreshTimer.record(latencyMs, TimeUnit.MILLISECONDS);
- *         registry.counter("graph.auth.token.refresh",
+ *         registry.counter("graph.auth.token.refresh.total",
  *             "success", String.valueOf(success)).increment();
  *     }
  *
@@ -39,7 +44,14 @@ package org.eptura;
  *
  *     @Override
  *     public void recordCircuitBreakerState(boolean open) {
- *         registry.gauge("graph.auth.circuit.open", open ? 1 : 0);
+ *         // Update the AtomicInteger - gauge will reflect this on next scrape
+ *         circuitBreakerState.set(open ? 1 : 0);
+ *     }
+ *
+ *     @Override
+ *     public void recordConnection(boolean success) {
+ *         registry.counter("graph.auth.connection",
+ *             "success", String.valueOf(success)).increment();
  *     }
  * }
  * }</pre>

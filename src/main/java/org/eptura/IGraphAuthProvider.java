@@ -49,11 +49,26 @@ public interface IGraphAuthProvider extends AutoCloseable {
 
     /**
      * Disconnects and clears all cached credentials and tokens.
+     * <p>
+     * After calling this method, {@link #connect} can be called again to re-establish a connection.
+     * </p>
      */
     void disconnect();
 
     /**
-     * Closes the provider (same as disconnect for AutoCloseable support).
+     * Closes the provider and releases all resources.
+     * <p>
+     * This method performs the following:
+     * <ul>
+     *   <li>Calls {@link #disconnect()} to clear credentials and tokens</li>
+     *   <li>Shuts down any internal executor services (if owned by this instance)</li>
+     * </ul>
+     * </p>
+     * <p>
+     * <b>Important:</b> Unlike {@link #disconnect()}, calling {@code close()} may make the provider
+     * unusable for reconnection if it owns its executor service. Create a new instance if you need
+     * to reconnect after calling {@code close()}.
+     * </p>
      */
     @Override
     void close();

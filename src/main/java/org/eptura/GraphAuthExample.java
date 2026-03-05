@@ -67,6 +67,8 @@ public class GraphAuthExample {
 
     /**
      * Simplest usage pattern with default configuration.
+    /**
+     * Simplest usage pattern with default configuration.
      */
     private static void simpleUsageExample(UUID clientId, UUID tenantId, char[] clientSecret) {
         LOGGER.info("=== Simple Usage Example ===");
@@ -78,12 +80,12 @@ public class GraphAuthExample {
 
             // Example: Get organization info
             var org = client.organization().buildRequest().get();
-            if (org != null && org.getCurrentPage() != null) {
+            if (org != null) {
                 org.getCurrentPage().forEach(o ->
                         LOGGER.info("Organization: {}", o.displayName));
             }
 
-        } catch (GraphAuthProvider.GraphAuthProviderException e) {
+        } catch (GraphAuthException e) {
             if (e.isCircuitOpen()) {
                 LOGGER.error("Circuit breaker is open - Azure AD unavailable", e);
             } else {
@@ -112,7 +114,7 @@ public class GraphAuthExample {
             LOGGER.info("Connected with custom config: {}", provider.getConfig());
             LOGGER.info("Is connected: {}", provider.isConnected());
 
-        } catch (GraphAuthProvider.GraphAuthProviderException e) {
+        } catch (GraphAuthException e) {
             LOGGER.error("Authentication failed", e);
         }
     }
@@ -156,12 +158,12 @@ public class GraphAuthExample {
 
             // Make multiple calls to see cache hits
             for (int i = 0; i < 3; i++) {
-                GraphServiceClient<Request> client = provider.getClient();
+                provider.getClient();
                 // Each getClient() call uses cached token
                 LOGGER.info("Call #{}: Client ready", i + 1);
             }
 
-        } catch (GraphAuthProvider.GraphAuthProviderException e) {
+        } catch (GraphAuthException e) {
             LOGGER.error("Authentication failed", e);
         }
     }

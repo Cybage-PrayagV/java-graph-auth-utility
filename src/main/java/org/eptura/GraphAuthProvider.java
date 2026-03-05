@@ -157,17 +157,17 @@ public final class GraphAuthProvider implements IGraphAuthProvider {
     private final TokenMetrics metrics;
 
     // ==================== Connection State ====================
-    // Note: Connection state fields (app, graphClient, clientInfo) are protected by connectionLock.
-    // The volatile keyword is not needed since all reads/writes occur within synchronized blocks.
-    // The only exception is isConnected() which performs a quick non-synchronized check - this is
-    // safe because we're only reading references (atomic operation) for a status check, not for
-    // making decisions that require consistency.
+    // Note: Connection state fields (app, graphClient, clientInfo) use volatile for memory visibility.
+    // While writes occur within synchronized(connectionLock) blocks, reads in getClient(),
+    // isConnected(), and acquireTokenWithRetry() are performed without synchronization for
+    // performance. The volatile keyword ensures these unsynchronized reads see the most recent
+    // write from other threads (happens-before relationship).
 
     /**
      * MSAL confidential client application.
-     * Access synchronized via {@link #connectionLock}.
+     * Writes synchronized via {@link #connectionLock}; volatile for unsynchronized reads.
      */
-    private ConfidentialClientApplication app;
+    private volatile ConfidentialClientApplication app;
 
     /**
      * Cached authentication result (thread-safe).
@@ -176,15 +176,15 @@ public final class GraphAuthProvider implements IGraphAuthProvider {
 
     /**
      * Microsoft Graph client instance.
-     * Access synchronized via {@link #connectionLock}.
+     * Writes synchronized via {@link #connectionLock}; volatile for unsynchronized reads.
      */
-    private GraphServiceClient<Request> graphClient;
+    private volatile GraphServiceClient<Request> graphClient;
 
     /**
      * Client information for logging.
-     * Access synchronized via {@link #connectionLock}.
+     * Writes synchronized via {@link #connectionLock}; volatile for unsynchronized reads.
      */
-    private ClientInfo clientInfo;
+    private volatile ClientInfo clientInfo;
 
     // ==================== Thread Safety Locks ====================
 
@@ -385,10 +385,15 @@ public final class GraphAuthProvider implements IGraphAuthProvider {
                         clientInfo, System.currentTimeMillis() - startTime);
 
             } catch (Exception e) {
+                // Reset state on failure to allow retry
+                app = null;
+                graphClient = null;
+                cachedAuthResult.set(null);
+
                 metrics.recordConnection(false);
                 LOGGER.error("Failed to connect to Microsoft Graph for {}: {}",
                         clientInfo, e.getMessage(), e);
-                throw new GraphAuthProviderException("Failed to connect to Microsoft Graph", e);
+                throw new GraphAuthException("Failed to connect to Microsoft Graph", e);
             } finally {
                 zeroOutCharArray(clientSecret);
             }
@@ -598,7 +603,7 @@ public final class GraphAuthProvider implements IGraphAuthProvider {
     private void checkCircuitBreaker() {
         if (isCircuitOpen()) {
             metrics.recordCircuitBreakerState(true);
-            throw new GraphAuthProviderException(
+            throw new GraphAuthException(
                     "Circuit breaker is open - Azure AD appears unavailable. Retry after: " + circuitResetTime,
                     null,
                     true
@@ -608,14 +613,26 @@ public final class GraphAuthProvider implements IGraphAuthProvider {
 
     /**
      * Checks if the circuit breaker is currently open.
+     * <p>
+     * Uses atomic compare-and-set for the half-open probe to ensure only one thread
+     * is allowed through when transitioning from open to half-open state.
+     * </p>
      */
     private boolean isCircuitOpen() {
-        if (consecutiveFailures.get() >= CIRCUIT_BREAKER_FAILURE_THRESHOLD) {
-            // Check if reset timeout has passed
+        int currentFailures = consecutiveFailures.get();
+        if (currentFailures >= CIRCUIT_BREAKER_FAILURE_THRESHOLD) {
+            // Check if reset timeout has passed (half-open opportunity)
             if (Instant.now().isAfter(circuitResetTime)) {
-                // Allow one attempt to go through (half-open state)
-                consecutiveFailures.set(CIRCUIT_BREAKER_FAILURE_THRESHOLD - 1);
-                return false;
+                // Atomically try to claim the single half-open probe slot
+                // Only one thread will succeed; others will see circuit as still open
+                if (consecutiveFailures.compareAndSet(
+                        CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+                        CIRCUIT_BREAKER_FAILURE_THRESHOLD - 1)) {
+                    LOGGER.debug("Circuit breaker entering half-open state, allowing probe request");
+                    return false;
+                }
+                // Another thread claimed the probe slot, circuit still effectively open for us
+                return true;
             }
             return true;
         }
